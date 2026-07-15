@@ -3,7 +3,9 @@ import type {
   Activity,
   DayState,
   ExerciseEntry,
+  ExerciseFavorite,
   FoodEntry,
+  FoodFavorite,
   FoodItem,
   Goal,
   Macros,
@@ -206,6 +208,53 @@ export async function deleteFoodEntry(id: number): Promise<void> {
   await c.execute({ sql: `DELETE FROM food_entries WHERE id = ?`, args: [id] });
 }
 
+export type FoodItemPatch = Partial<{
+  name: string;
+  amountG: number | null;
+  kcal: number;
+  proteinG: number;
+  carbG: number;
+  fatG: number;
+}>;
+
+const FOOD_ITEM_COLUMNS: Record<string, string> = {
+  name: "name",
+  amountG: "amount_g",
+  kcal: "kcal",
+  proteinG: "protein_g",
+  carbG: "carb_g",
+  fatG: "fat_g",
+};
+
+/** Update one food item. Missing row is a silent no-op (best-effort, single user). */
+export async function updateFoodItem(
+  id: number,
+  patch: FoodItemPatch,
+): Promise<void> {
+  await ensureSchema();
+  const sets: string[] = [];
+  const args: (string | number | null)[] = [];
+  for (const [key, col] of Object.entries(FOOD_ITEM_COLUMNS)) {
+    if (key in patch) {
+      let v = (patch as Record<string, unknown>)[key] as
+        | string
+        | number
+        | null;
+      if (typeof v === "number") {
+        v = key === "kcal" ? round(v) : key === "amountG" ? v : round(v, 1);
+      }
+      sets.push(`${col} = ?`);
+      args.push(v ?? null);
+    }
+  }
+  if (sets.length === 0) return;
+  args.push(id);
+  await db().execute({
+    sql: `UPDATE food_items SET ${sets.join(", ")} WHERE id = ?`,
+    args,
+  });
+}
+
 /* ---------- exercise ---------- */
 
 export async function addExerciseEntry(input: {
@@ -250,6 +299,222 @@ export async function getExerciseEntries(date: string): Promise<ExerciseEntry[]>
 export async function deleteExerciseEntry(id: number): Promise<void> {
   await ensureSchema();
   await db().execute({ sql: `DELETE FROM exercise_entries WHERE id = ?`, args: [id] });
+}
+
+export type ExerciseEntryPatch = Partial<{
+  type: string;
+  whenText: string | null;
+  caloriesBurned: number;
+  note: string | null;
+}>;
+
+const EXERCISE_COLUMNS: Record<string, string> = {
+  type: "type",
+  whenText: "when_text",
+  caloriesBurned: "calories_burned",
+  note: "note",
+};
+
+/** Update one exercise entry. Missing row is a silent no-op (best-effort, single user). */
+export async function updateExerciseEntry(
+  id: number,
+  patch: ExerciseEntryPatch,
+): Promise<void> {
+  await ensureSchema();
+  const sets: string[] = [];
+  const args: (string | number | null)[] = [];
+  for (const [key, col] of Object.entries(EXERCISE_COLUMNS)) {
+    if (key in patch) {
+      let v = (patch as Record<string, unknown>)[key] as
+        | string
+        | number
+        | null;
+      if (key === "caloriesBurned" && typeof v === "number") v = round(v);
+      sets.push(`${col} = ?`);
+      args.push(v ?? null);
+    }
+  }
+  if (sets.length === 0) return;
+  args.push(id);
+  await db().execute({
+    sql: `UPDATE exercise_entries SET ${sets.join(", ")} WHERE id = ?`,
+    args,
+  });
+}
+
+/* ---------- favorites ---------- */
+/*
+ * Favorites are snapshots: creating one copies the row's values, and there is
+ * no link back to the logged item. Edits/deletes on either side are independent.
+ */
+
+function mapFoodFavorite(r: Record<string, unknown>): FoodFavorite {
+  return {
+    id: Number(r.id),
+    name: str(r.name) ?? "",
+    amountG: num(r.amount_g),
+    kcal: n0(r.kcal),
+    proteinG: n0(r.protein_g),
+    carbG: n0(r.carb_g),
+    fatG: n0(r.fat_g),
+    createdAt: str(r.created_at) ?? "",
+  };
+}
+
+export async function addFoodFavorite(input: {
+  name: string;
+  amountG: number | null;
+  kcal: number;
+  proteinG: number;
+  carbG: number;
+  fatG: number;
+}): Promise<FoodFavorite> {
+  await ensureSchema();
+  const res = await db().execute({
+    sql: `INSERT INTO food_favorites (name, amount_g, kcal, protein_g, carb_g, fat_g, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      input.name,
+      input.amountG,
+      round(input.kcal),
+      round(input.proteinG, 1),
+      round(input.carbG, 1),
+      round(input.fatG, 1),
+      new Date().toISOString(),
+    ],
+  });
+  const rs = await db().execute({
+    sql: `SELECT * FROM food_favorites WHERE id = ?`,
+    args: [Number(res.lastInsertRowid)],
+  });
+  return mapFoodFavorite(rs.rows[0] as Record<string, unknown>);
+}
+
+export async function getFoodFavorites(): Promise<FoodFavorite[]> {
+  await ensureSchema();
+  const rs = await db().execute(
+    `SELECT * FROM food_favorites ORDER BY id DESC`,
+  );
+  return (rs.rows as unknown as Record<string, unknown>[]).map(mapFoodFavorite);
+}
+
+export async function deleteFoodFavorite(id: number): Promise<void> {
+  await ensureSchema();
+  await db().execute({ sql: `DELETE FROM food_favorites WHERE id = ?`, args: [id] });
+}
+
+/**
+ * Log a favorite as a normal food entry (no AI call). If amountG is given and
+ * the favorite has a positive stored amount, macros scale proportionally;
+ * otherwise the favorite is logged verbatim and the override is ignored.
+ */
+export async function logFoodFavorite(
+  id: number,
+  date: string,
+  amountG?: number,
+): Promise<boolean> {
+  await ensureSchema();
+  const rs = await db().execute({
+    sql: `SELECT * FROM food_favorites WHERE id = ?`,
+    args: [id],
+  });
+  if (rs.rows.length === 0) return false;
+  const fav = mapFoodFavorite(rs.rows[0] as Record<string, unknown>);
+
+  let item: NewFoodItem = {
+    name: fav.name,
+    amountG: fav.amountG,
+    kcal: fav.kcal,
+    proteinG: fav.proteinG,
+    carbG: fav.carbG,
+    fatG: fav.fatG,
+  };
+  if (amountG != null && fav.amountG != null && fav.amountG > 0) {
+    const f = amountG / fav.amountG;
+    item = {
+      name: fav.name,
+      amountG,
+      kcal: round(fav.kcal * f),
+      proteinG: round(fav.proteinG * f, 1),
+      carbG: round(fav.carbG * f, 1),
+      fatG: round(fav.fatG * f, 1),
+    };
+  }
+
+  await addFoodEntry({
+    date,
+    source: "text",
+    rawInput: `(favorite: ${fav.name})`,
+    note: null,
+    items: [item],
+  });
+  return true;
+}
+
+function mapExerciseFavorite(r: Record<string, unknown>): ExerciseFavorite {
+  return {
+    id: Number(r.id),
+    type: str(r.type) ?? "",
+    caloriesBurned: n0(r.calories_burned),
+    createdAt: str(r.created_at) ?? "",
+  };
+}
+
+export async function addExerciseFavorite(input: {
+  type: string;
+  caloriesBurned: number;
+}): Promise<ExerciseFavorite> {
+  await ensureSchema();
+  const res = await db().execute({
+    sql: `INSERT INTO exercise_favorites (type, calories_burned, created_at)
+          VALUES (?, ?, ?)`,
+    args: [input.type, round(input.caloriesBurned), new Date().toISOString()],
+  });
+  const rs = await db().execute({
+    sql: `SELECT * FROM exercise_favorites WHERE id = ?`,
+    args: [Number(res.lastInsertRowid)],
+  });
+  return mapExerciseFavorite(rs.rows[0] as Record<string, unknown>);
+}
+
+export async function getExerciseFavorites(): Promise<ExerciseFavorite[]> {
+  await ensureSchema();
+  const rs = await db().execute(
+    `SELECT * FROM exercise_favorites ORDER BY id DESC`,
+  );
+  return (rs.rows as unknown as Record<string, unknown>[]).map(
+    mapExerciseFavorite,
+  );
+}
+
+export async function deleteExerciseFavorite(id: number): Promise<void> {
+  await ensureSchema();
+  await db().execute({
+    sql: `DELETE FROM exercise_favorites WHERE id = ?`,
+    args: [id],
+  });
+}
+
+/** Re-log a favorite verbatim as a normal exercise entry (whenText left empty). */
+export async function logExerciseFavorite(
+  id: number,
+  date: string,
+): Promise<boolean> {
+  await ensureSchema();
+  const rs = await db().execute({
+    sql: `SELECT * FROM exercise_favorites WHERE id = ?`,
+    args: [id],
+  });
+  if (rs.rows.length === 0) return false;
+  const fav = mapExerciseFavorite(rs.rows[0] as Record<string, unknown>);
+  await addExerciseEntry({
+    date,
+    type: fav.type,
+    whenText: null,
+    caloriesBurned: fav.caloriesBurned,
+    note: null,
+  });
+  return true;
 }
 
 /* ---------- day assembly ---------- */

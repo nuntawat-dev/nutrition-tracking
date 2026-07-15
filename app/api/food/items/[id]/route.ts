@@ -1,27 +1,11 @@
 import { NextResponse } from "next/server";
-import {
-  computeDay,
-  deleteExerciseEntry,
-  updateExerciseEntry,
-} from "@/lib/data";
+import { computeDay, updateFoodItem } from "@/lib/data";
 import { isValidDate, serverToday } from "@/lib/date";
-import { exerciseEntryPatchSchema } from "@/lib/schemas";
+import { foodItemPatchSchema } from "@/lib/schemas";
 
 export const runtime = "nodejs";
 
-export async function DELETE(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-) {
-  const { id } = await ctx.params;
-  const n = Number(id);
-  if (!Number.isInteger(n)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
-  await deleteExerciseEntry(n);
-  return NextResponse.json({ ok: true });
-}
-
+// [id] here is food_items.id — unlike /api/food/[id], where it is the entry id.
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
@@ -34,7 +18,7 @@ export async function PATCH(
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const { date: rawDate, ...rest } = body;
-  const parsed = exerciseEntryPatchSchema.safeParse(rest);
+  const parsed = foodItemPatchSchema.safeParse(rest);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid patch" },
@@ -43,6 +27,6 @@ export async function PATCH(
   }
 
   const date = isValidDate(rawDate) ? rawDate : serverToday();
-  await updateExerciseEntry(n, parsed.data);
+  await updateFoodItem(n, parsed.data);
   return NextResponse.json({ day: await computeDay(date) });
 }

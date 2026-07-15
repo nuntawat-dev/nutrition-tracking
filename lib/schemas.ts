@@ -149,3 +149,58 @@ export const suggestResult = z.object({
   ),
 });
 export type SuggestResult = z.infer<typeof suggestResult>;
+
+/* ------------------------------------------------------------------ *
+ * Manual edit patch validators — for user-driven PATCH requests,
+ * not sent to the model.
+ * ------------------------------------------------------------------ */
+
+export const foodItemPatchSchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    amountG: z.number().nonnegative().nullable().optional(),
+    kcal: z.number().nonnegative().optional(),
+    proteinG: z.number().nonnegative().optional(),
+    carbG: z.number().nonnegative().optional(),
+    fatG: z.number().nonnegative().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "Empty patch" });
+export type FoodItemPatchInput = z.infer<typeof foodItemPatchSchema>;
+
+export const exerciseEntryPatchSchema = z
+  .object({
+    type: z.string().trim().min(1).optional(),
+    whenText: z.string().nullable().optional(),
+    caloriesBurned: z.number().nonnegative().optional(),
+    note: z.string().nullable().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "Empty patch" });
+export type ExerciseEntryPatchInput = z.infer<typeof exerciseEntryPatchSchema>;
+
+/* ------------------------------------------------------------------ *
+ * Favorites validators.
+ * ------------------------------------------------------------------ */
+
+export const foodFavoriteCreateSchema = z.object({
+  name: z.string().trim().min(1),
+  amountG: z.number().nonnegative().nullable(),
+  kcal: z.number().nonnegative(),
+  proteinG: z.number().nonnegative(),
+  carbG: z.number().nonnegative(),
+  fatG: z.number().nonnegative(),
+});
+export type FoodFavoriteCreateInput = z.infer<typeof foodFavoriteCreateSchema>;
+
+export const exerciseFavoriteCreateSchema = z.object({
+  type: z.string().trim().min(1),
+  caloriesBurned: z.number().nonnegative(),
+});
+export type ExerciseFavoriteCreateInput = z.infer<
+  typeof exerciseFavoriteCreateSchema
+>;
+
+export const favoriteLogBodySchema = z.object({
+  date: z.string().optional(),
+  amountG: z.number().positive().optional(),
+});
+export type FavoriteLogBody = z.infer<typeof favoriteLogBodySchema>;

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { api, fileToResizedBase64 } from "@/lib/client";
-import type { DayState } from "@/lib/types";
+import type { DayState, ExerciseFavorite, FoodFavorite } from "@/lib/types";
 import { Banner, Button, GlassCard } from "./ui";
 
 type Tab = "food" | "exercise";
@@ -10,9 +10,15 @@ type Tab = "food" | "exercise";
 export function Logger({
   date,
   onDay,
+  foodFavorites,
+  exerciseFavorites,
+  onFavoritesChanged,
 }: {
   date: string;
   onDay: (day: DayState) => void;
+  foodFavorites: FoodFavorite[];
+  exerciseFavorites: ExerciseFavorite[];
+  onFavoritesChanged: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("food");
 
@@ -41,12 +47,132 @@ export function Logger({
         ))}
       </div>
 
+      <FavoriteChips
+        tab={tab}
+        date={date}
+        onDay={onDay}
+        foodFavorites={foodFavorites}
+        exerciseFavorites={exerciseFavorites}
+        onFavoritesChanged={onFavoritesChanged}
+      />
+
       {tab === "food" ? (
         <FoodForm date={date} onDay={onDay} />
       ) : (
         <ExerciseForm date={date} onDay={onDay} />
       )}
     </GlassCard>
+  );
+}
+
+function FavoriteChips({
+  tab,
+  date,
+  onDay,
+  foodFavorites,
+  exerciseFavorites,
+  onFavoritesChanged,
+}: {
+  tab: Tab;
+  date: string;
+  onDay: (day: DayState) => void;
+  foodFavorites: FoodFavorite[];
+  exerciseFavorites: ExerciseFavorite[];
+  onFavoritesChanged: () => void;
+}) {
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const favorites = tab === "food" ? foodFavorites : exerciseFavorites;
+  if (favorites.length === 0) return null;
+
+  async function logFavorite(id: number) {
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await api<{ day: DayState }>(
+        `/api/favorites/${tab}/${id}/log`,
+        { method: "POST", body: JSON.stringify({ date }) },
+      );
+      onDay(res.day);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not log favorite.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function removeFavorite(id: number) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await api(`/api/favorites/${tab}/${id}`, { method: "DELETE" });
+      onFavoritesChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete favorite.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Favorites — tap to log
+      </div>
+      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+        {tab === "food"
+          ? foodFavorites.map((f) => (
+              <span key={f.id} className="chip shrink-0 border border-white/50 bg-white/50 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+                <button
+                  type="button"
+                  onClick={() => logFavorite(f.id)}
+                  disabled={busyId === f.id}
+                  className="disabled:opacity-50"
+                  title={`Log ${f.name}${f.amountG != null ? ` (${Math.round(f.amountG)} g)` : ""}`}
+                >
+                  ⭐ {f.name} · {Math.round(f.kcal)} kcal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeFavorite(f.id)}
+                  disabled={busyId === f.id}
+                  aria-label={`Remove favorite ${f.name}`}
+                  className="ml-1.5 text-slate-400 hover:text-rose-500 disabled:opacity-50"
+                >
+                  ×
+                </button>
+              </span>
+            ))
+          : exerciseFavorites.map((f) => (
+              <span key={f.id} className="chip shrink-0 border border-white/50 bg-white/50 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+                <button
+                  type="button"
+                  onClick={() => logFavorite(f.id)}
+                  disabled={busyId === f.id}
+                  className="capitalize disabled:opacity-50"
+                  title={`Log ${f.type}`}
+                >
+                  ⭐ {f.type} · {Math.round(f.caloriesBurned)} kcal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeFavorite(f.id)}
+                  disabled={busyId === f.id}
+                  aria-label={`Remove favorite ${f.type}`}
+                  className="ml-1.5 text-slate-400 hover:text-rose-500 disabled:opacity-50"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+      </div>
+      {error && (
+        <div className="mt-2">
+          <Banner kind="error">{error}</Banner>
+        </div>
+      )}
+    </div>
   );
 }
 

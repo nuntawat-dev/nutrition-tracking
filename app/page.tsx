@@ -14,13 +14,17 @@ import {
   localToday,
   shiftDate,
 } from "@/lib/client";
-import type { DayState } from "@/lib/types";
+import type { DayState, ExerciseFavorite, FoodFavorite } from "@/lib/types";
 
 export default function Home() {
   const [date, setDate] = useState<string>(localToday());
   const [day, setDay] = useState<DayState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [foodFavorites, setFoodFavorites] = useState<FoodFavorite[]>([]);
+  const [exerciseFavorites, setExerciseFavorites] = useState<
+    ExerciseFavorite[]
+  >([]);
 
   const load = useCallback(async (d: string) => {
     setLoading(true);
@@ -40,9 +44,26 @@ export default function Home() {
     }
   }, []);
 
+  const loadFavorites = useCallback(async () => {
+    try {
+      const [food, exercise] = await Promise.all([
+        api<FoodFavorite[]>("/api/favorites/food"),
+        api<ExerciseFavorite[]>("/api/favorites/exercise"),
+      ]);
+      setFoodFavorites(food);
+      setExerciseFavorites(exercise);
+    } catch {
+      /* favorites are non-critical; leave lists as-is */
+    }
+  }, []);
+
   useEffect(() => {
     load(date);
   }, [date, load]);
+
+  useEffect(() => {
+    loadFavorites();
+  }, [loadFavorites]);
 
   async function logout() {
     try {
@@ -145,9 +166,20 @@ export default function Home() {
         <div className="space-y-5">
           <div className="grid gap-5 lg:grid-cols-2">
             <Targets profile={day.profile} onChanged={() => load(date)} />
-            <Logger date={date} onDay={setDay} />
+            <Logger
+              date={date}
+              onDay={setDay}
+              foodFavorites={foodFavorites}
+              exerciseFavorites={exerciseFavorites}
+              onFavoritesChanged={loadFavorites}
+            />
           </div>
-          <SummaryTable day={day} date={date} onDay={setDay} />
+          <SummaryTable
+            day={day}
+            date={date}
+            onDay={setDay}
+            onFavoritesChanged={loadFavorites}
+          />
           <Suggestions date={date} />
         </div>
       )}

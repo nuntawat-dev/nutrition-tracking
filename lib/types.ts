@@ -55,6 +55,24 @@ export interface ExerciseEntry {
   note: string | null;
 }
 
+export interface FoodFavorite {
+  id: number;
+  name: string;
+  amountG: number | null;
+  kcal: number;
+  proteinG: number;
+  carbG: number;
+  fatG: number;
+  createdAt: string;
+}
+
+export interface ExerciseFavorite {
+  id: number;
+  type: string;
+  caloriesBurned: number;
+  createdAt: string;
+}
+
 export interface Macros {
   kcal: number;
   protein: number;

@@ -60,6 +60,25 @@ const STATEMENTS: string[] = [
     calories_burned REAL NOT NULL DEFAULT 0,
     note TEXT
   )`,
+  // Favorites are snapshots, deliberately decoupled from food_items /
+  // exercise_entries (no FK): editing or deleting a logged row never touches
+  // a favorite created from it, and vice versa.
+  `CREATE TABLE IF NOT EXISTS food_favorites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    amount_g REAL,
+    kcal REAL NOT NULL,
+    protein_g REAL NOT NULL,
+    carb_g REAL NOT NULL,
+    fat_g REAL NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS exercise_favorites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    calories_burned REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_food_entries_date ON food_entries(date)`,
   `CREATE INDEX IF NOT EXISTS idx_food_items_entry ON food_items(entry_id)`,
   `CREATE INDEX IF NOT EXISTS idx_exercise_date ON exercise_entries(date)`,
