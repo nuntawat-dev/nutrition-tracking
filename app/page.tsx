@@ -7,6 +7,8 @@ import { SummaryTable } from "@/components/SummaryTable";
 import { Suggestions } from "@/components/Suggestions";
 import { Targets } from "@/components/Targets";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { TrendsCard } from "@/components/Trends";
+import { WeightCard } from "@/components/WeightCard";
 import { GlassCard } from "@/components/ui";
 import {
   api,
@@ -181,6 +183,10 @@ export default function Home() {
             onFavoritesChanged={loadFavorites}
           />
           <Suggestions date={date} />
+          <div className="grid gap-5 lg:grid-cols-2">
+            <WeightCard onProfileChanged={() => load(date)} />
+            <TrendsCard onProfileChanged={() => load(date)} />
+          </div>
         </div>
       )}
 

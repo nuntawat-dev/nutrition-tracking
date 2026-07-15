@@ -107,3 +107,63 @@ export function suggestUser(input: {
 export function profilePreferences(p: Profile): string {
   return p.preferences ?? "";
 }
+
+export const coachSystem = `You are a supportive, evidence-based nutrition coach reviewing a client's recent tracking data.
+
+Rules:
+- Give 2-4 "observations": each a short title plus 1-2 sentences of detail, grounded in the actual numbers (call out specific values or patterns, e.g. weekday vs weekend, protein shortfalls, unlogged days).
+- Be encouraging but honest; never shame. If the data is sparse, say so and make logging consistency the main observation.
+- "suggestion": ONE concrete, practical next step for the coming week.
+- "targetAdjustment": whether the calorie/macro targets should change, based on the goal, average intake, and the weight trend.
+  - Set recommended=true ONLY if the weight trend clearly disagrees with the goal (e.g. goal is cut but weight is flat/rising while adherence is decent, or losing much faster than ~1% bodyweight/week).
+  - If recommended=true, propose new whole-number targets close to the current ones (adjust calories by at most ~300 kcal; keep protein at or above the current level; 4*protein + 4*carb + 9*fat within ~40 kcal of targetCalories) and explain in one sentence in "rationale".
+  - If recommended=false, still fill the numbers with the CURRENT targets and put a one-sentence reason in "rationale" (e.g. "on track" or "not enough data yet").
+- Fewer than ~5 logged days or fewer than 2 weight measurements is NOT enough data for an adjustment.`;
+
+export function coachUser(input: {
+  goal: string;
+  preferences: string;
+  targets: Macros;
+  stats: {
+    loggedDays: number;
+    avgKcal: number;
+    avgProtein: number;
+    avgCarb: number;
+    avgFat: number;
+    streak: number;
+  };
+  days: number;
+  series: {
+    date: string;
+    kcal: number;
+    protein: number;
+    carb: number;
+    fat: number;
+    burned: number;
+    logged: boolean;
+  }[];
+  weights: { date: string; weightKg: number }[];
+}): string {
+  const seriesLines = input.series
+    .filter((d) => d.logged || d.burned > 0)
+    .map(
+      (d) =>
+        `${d.date}: ${d.kcal} kcal, P ${d.protein}g, C ${d.carb}g, F ${d.fat}g${
+          d.burned > 0 ? `, exercise ${d.burned} kcal` : ""
+        }`,
+    );
+  const weightLines = input.weights.map((w) => `${w.date}: ${w.weightKg} kg`);
+  return [
+    `Review my last ${input.days} days.`,
+    `Goal: ${input.goal}. Preferences: ${input.preferences.trim() || "none stated"}.`,
+    `Current daily targets: ${input.targets.kcal} kcal, P ${input.targets.protein}g, C ${input.targets.carb}g, F ${input.targets.fat}g.`,
+    `Days logged: ${input.stats.loggedDays} of ${input.days} (current streak ${input.stats.streak}).`,
+    `Averages on logged days: ${input.stats.avgKcal} kcal, P ${input.stats.avgProtein}g, C ${input.stats.avgCarb}g, F ${input.stats.avgFat}g.`,
+    ``,
+    `Daily log:`,
+    seriesLines.length > 0 ? seriesLines.join("\n") : "(no days logged)",
+    ``,
+    `Weight log:`,
+    weightLines.length > 0 ? weightLines.join("\n") : "(no weight entries)",
+  ].join("\n");
+}

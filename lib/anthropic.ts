@@ -36,6 +36,11 @@ export async function generateJSON<T = unknown>(params: {
   if (message.stop_reason === "refusal") {
     throw new Error("The model declined to respond to this request.");
   }
+  if (message.stop_reason === "max_tokens") {
+    // Truncated output cannot be valid JSON — fail loudly so the caller
+    // knows to raise maxTokens rather than surfacing a parse error.
+    throw new Error("Model output was truncated (max_tokens too low).");
+  }
 
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

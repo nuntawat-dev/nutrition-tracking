@@ -4,6 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Nutrition Tracker",
   description: "AI-powered personal nutrition & macro tracker",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Nutrition",
+  },
 };
 
 export const viewport: Viewport = {

@@ -77,6 +77,13 @@ export interface ExerciseFavorite {
   lastUsedAt: string | null;
 }
 
+export interface WeightEntry {
+  id: number;
+  date: string;
+  weightKg: number;
+  createdAt: string;
+}
+
 export interface Macros {
   kcal: number;
   protein: number;

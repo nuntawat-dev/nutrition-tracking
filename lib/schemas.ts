@@ -150,6 +150,61 @@ export const suggestResult = z.object({
 });
 export type SuggestResult = z.infer<typeof suggestResult>;
 
+export const coachJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    observations: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          detail: { type: "string" },
+        },
+        required: ["title", "detail"],
+      },
+    },
+    suggestion: { type: "string" },
+    targetAdjustment: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        recommended: { type: "boolean" },
+        targetCalories: { type: "number" },
+        proteinG: { type: "number" },
+        carbG: { type: "number" },
+        fatG: { type: "number" },
+        rationale: { type: "string" },
+      },
+      required: [
+        "recommended",
+        "targetCalories",
+        "proteinG",
+        "carbG",
+        "fatG",
+        "rationale",
+      ],
+    },
+  },
+  required: ["observations", "suggestion", "targetAdjustment"],
+} as const;
+
+export const coachResult = z.object({
+  observations: z.array(z.object({ title: z.string(), detail: z.string() })),
+  suggestion: z.string(),
+  targetAdjustment: z.object({
+    recommended: z.boolean(),
+    targetCalories: z.number(),
+    proteinG: z.number(),
+    carbG: z.number(),
+    fatG: z.number(),
+    rationale: z.string(),
+  }),
+});
+export type CoachResult = z.infer<typeof coachResult>;
+
 /* ------------------------------------------------------------------ *
  * Manual edit patch validators — for user-driven PATCH requests,
  * not sent to the model.
@@ -204,3 +259,13 @@ export const favoriteLogBodySchema = z.object({
   amountG: z.number().positive().optional(),
 });
 export type FavoriteLogBody = z.infer<typeof favoriteLogBodySchema>;
+
+/* ------------------------------------------------------------------ *
+ * Weight log validator.
+ * ------------------------------------------------------------------ */
+
+export const weightLogSchema = z.object({
+  date: z.string().optional(),
+  weightKg: z.number().positive().max(500),
+});
+export type WeightLogInput = z.infer<typeof weightLogSchema>;

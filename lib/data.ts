@@ -11,6 +11,7 @@ import type {
   Macros,
   Profile,
   Sex,
+  WeightEntry,
 } from "./types";
 
 /* ---------- value coercion helpers ---------- */
@@ -534,6 +535,196 @@ export async function logExerciseFavorite(
     args: [new Date().toISOString(), id],
   });
   return true;
+}
+
+/* ---------- weight ---------- */
+
+function mapWeightEntry(r: Record<string, unknown>): WeightEntry {
+  return {
+    id: Number(r.id),
+    date: str(r.date) ?? "",
+    weightKg: n0(r.weight_kg),
+    createdAt: str(r.created_at) ?? "",
+  };
+}
+
+/**
+ * Upsert the weight for a date (one entry per day) and keep
+ * profile.weight_kg in sync with the most recent measurement.
+ */
+export async function logWeight(
+  date: string,
+  weightKg: number,
+): Promise<WeightEntry> {
+  await ensureSchema();
+  const c = db();
+  const w = round(weightKg, 1);
+  await c.execute({
+    sql: `INSERT INTO weight_entries (date, weight_kg, created_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg`,
+    args: [date, w, new Date().toISOString()],
+  });
+  // Sync profile to the latest-dated measurement (this one may be a backfill).
+  const latest = await c.execute(
+    `SELECT weight_kg FROM weight_entries ORDER BY date DESC LIMIT 1`,
+  );
+  if (latest.rows.length > 0) {
+    await c.execute({
+      sql: `UPDATE profile SET weight_kg = ?, updated_at = ? WHERE id = 1`,
+      args: [n0((latest.rows[0] as Record<string, unknown>).weight_kg), new Date().toISOString()],
+    });
+  }
+  const rs = await c.execute({
+    sql: `SELECT * FROM weight_entries WHERE date = ?`,
+    args: [date],
+  });
+  return mapWeightEntry(rs.rows[0] as Record<string, unknown>);
+}
+
+/** Entries for the last `days` days (ascending by date). */
+export async function getWeightEntries(days: number): Promise<WeightEntry[]> {
+  await ensureSchema();
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().slice(0, 10);
+  const rs = await db().execute({
+    sql: `SELECT * FROM weight_entries WHERE date >= ? ORDER BY date ASC`,
+    args: [sinceStr],
+  });
+  return (rs.rows as unknown as Record<string, unknown>[]).map(mapWeightEntry);
+}
+
+export async function deleteWeightEntry(id: number): Promise<void> {
+  await ensureSchema();
+  await db().execute({ sql: `DELETE FROM weight_entries WHERE id = ?`, args: [id] });
+}
+
+/* ---------- trends ---------- */
+
+export interface TrendDay {
+  date: string;
+  kcal: number;
+  protein: number;
+  carb: number;
+  fat: number;
+  burned: number;
+  logged: boolean;
+}
+
+export interface TrendStats {
+  loggedDays: number;
+  avgKcal: number;
+  avgProtein: number;
+  avgCarb: number;
+  avgFat: number;
+  streak: number;
+}
+
+export interface Trends {
+  days: number;
+  series: TrendDay[];
+  targets: Macros;
+  weights: WeightEntry[];
+  stats: TrendStats;
+}
+
+/** Dense per-day consumption/burn series for the last `days` days. */
+export async function getTrends(days: number): Promise<Trends> {
+  await ensureSchema();
+  const c = db();
+
+  const since = new Date();
+  since.setDate(since.getDate() - (days - 1));
+  const sinceStr = since.toISOString().slice(0, 10);
+
+  const [foodRs, exRs, profile, weights] = await Promise.all([
+    c.execute({
+      sql: `SELECT fe.date AS date,
+                   SUM(fi.kcal) AS kcal,
+                   SUM(fi.protein_g) AS protein,
+                   SUM(fi.carb_g) AS carb,
+                   SUM(fi.fat_g) AS fat
+            FROM food_items fi
+            JOIN food_entries fe ON fe.id = fi.entry_id
+            WHERE fe.date >= ?
+            GROUP BY fe.date`,
+      args: [sinceStr],
+    }),
+    c.execute({
+      sql: `SELECT date, SUM(calories_burned) AS burned
+            FROM exercise_entries
+            WHERE date >= ?
+            GROUP BY date`,
+      args: [sinceStr],
+    }),
+    getProfile(),
+    getWeightEntries(days),
+  ]);
+
+  const foodByDate = new Map<string, Record<string, unknown>>();
+  for (const r of foodRs.rows as unknown as Record<string, unknown>[]) {
+    foodByDate.set(str(r.date) ?? "", r);
+  }
+  const burnedByDate = new Map<string, number>();
+  for (const r of exRs.rows as unknown as Record<string, unknown>[]) {
+    burnedByDate.set(str(r.date) ?? "", n0(r.burned));
+  }
+
+  const series: TrendDay[] = [];
+  const cursor = new Date(since);
+  for (let i = 0; i < days; i++) {
+    const dateStr = cursor.toISOString().slice(0, 10);
+    const f = foodByDate.get(dateStr);
+    series.push({
+      date: dateStr,
+      kcal: round(n0(f?.kcal)),
+      protein: round(n0(f?.protein), 1),
+      carb: round(n0(f?.carb), 1),
+      fat: round(n0(f?.fat), 1),
+      burned: round(burnedByDate.get(dateStr) ?? 0),
+      logged: f != null,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const loggedDays = series.filter((d) => d.logged);
+  const avg = (sel: (d: TrendDay) => number, dp = 0) =>
+    loggedDays.length === 0
+      ? 0
+      : round(
+          loggedDays.reduce((s, d) => s + sel(d), 0) / loggedDays.length,
+          dp,
+        );
+
+  // Streak: consecutive logged days counting back from today (or yesterday,
+  // so an un-logged "today so far" doesn't zero the streak).
+  let streak = 0;
+  for (let i = series.length - 1; i >= 0; i--) {
+    if (series[i].logged) streak++;
+    else if (i === series.length - 1) continue;
+    else break;
+  }
+
+  return {
+    days,
+    series,
+    targets: {
+      kcal: profile.targetCalories ?? 0,
+      protein: profile.proteinG ?? 0,
+      carb: profile.carbG ?? 0,
+      fat: profile.fatG ?? 0,
+    },
+    weights,
+    stats: {
+      loggedDays: loggedDays.length,
+      avgKcal: avg((d) => d.kcal),
+      avgProtein: avg((d) => d.protein, 1),
+      avgCarb: avg((d) => d.carb, 1),
+      avgFat: avg((d) => d.fat, 1),
+      streak,
+    },
+  };
 }
 
 /* ---------- day assembly ---------- */

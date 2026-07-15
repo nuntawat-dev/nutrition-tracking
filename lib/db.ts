@@ -83,6 +83,14 @@ const STATEMENTS: string[] = [
     use_count INTEGER NOT NULL DEFAULT 0,
     last_used_at TEXT
   )`,
+  // One weight per day; logging again for the same date replaces the value.
+  `CREATE TABLE IF NOT EXISTS weight_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,
+    weight_kg REAL NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_weight_date ON weight_entries(date)`,
   `CREATE INDEX IF NOT EXISTS idx_food_entries_date ON food_entries(date)`,
   `CREATE INDEX IF NOT EXISTS idx_food_items_entry ON food_items(entry_id)`,
   `CREATE INDEX IF NOT EXISTS idx_exercise_date ON exercise_entries(date)`,
