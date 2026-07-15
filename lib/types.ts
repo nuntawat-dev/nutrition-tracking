@@ -64,6 +64,8 @@ export interface FoodFavorite {
   carbG: number;
   fatG: number;
   createdAt: string;
+  useCount: number;
+  lastUsedAt: string | null;
 }
 
 export interface ExerciseFavorite {
@@ -71,6 +73,8 @@ export interface ExerciseFavorite {
   type: string;
   caloriesBurned: number;
   createdAt: string;
+  useCount: number;
+  lastUsedAt: string | null;
 }
 
 export interface Macros {

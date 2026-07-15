@@ -86,7 +86,7 @@ export default function Home() {
           <span className="text-xl">🥗</span> Nutrition
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
           <button
             type="button"
             onClick={() => setDate(shiftDate(date, -1))}

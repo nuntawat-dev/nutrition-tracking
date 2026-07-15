@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { api, fileToResizedBase64 } from "@/lib/client";
 import type { DayState, ExerciseFavorite, FoodFavorite } from "@/lib/types";
-import { Banner, Button, GlassCard } from "./ui";
+import { Banner, Button, GlassCard, cn } from "./ui";
 
 type Tab = "food" | "exercise";
 
@@ -48,6 +48,7 @@ export function Logger({
       </div>
 
       <FavoriteChips
+        key={tab}
         tab={tab}
         date={date}
         onDay={onDay}
@@ -64,6 +65,9 @@ export function Logger({
     </GlassCard>
   );
 }
+
+/** How many chips show before the list collapses behind "+N more". */
+const CHIP_LIMIT = 8;
 
 function FavoriteChips({
   tab,
@@ -82,9 +86,35 @@ function FavoriteChips({
 }) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [expanded, setExpanded] = useState(false);
 
-  const favorites = tab === "food" ? foodFavorites : exerciseFavorites;
-  if (favorites.length === 0) return null;
+  // Normalize both kinds into one chip shape; lists arrive most-used-first.
+  const all =
+    tab === "food"
+      ? foodFavorites.map((f) => ({
+          id: f.id,
+          label: f.name,
+          kcal: f.kcal,
+          title: `Log ${f.name}${f.amountG != null ? ` (${Math.round(f.amountG)} g)` : ""}`,
+          capitalize: false,
+        }))
+      : exerciseFavorites.map((f) => ({
+          id: f.id,
+          label: f.type,
+          kcal: f.caloriesBurned,
+          title: `Log ${f.type}`,
+          capitalize: true,
+        }));
+
+  if (all.length === 0) return null;
+
+  const q = filter.trim().toLowerCase();
+  const matches = q ? all.filter((f) => f.label.toLowerCase().includes(q)) : all;
+  const collapsible = all.length > CHIP_LIMIT;
+  const visible =
+    q || expanded || !collapsible ? matches : matches.slice(0, CHIP_LIMIT);
+  const hiddenCount = matches.length - visible.length;
 
   async function logFavorite(id: number) {
     setBusyId(id);
@@ -95,6 +125,7 @@ function FavoriteChips({
         { method: "POST", body: JSON.stringify({ date }) },
       );
       onDay(res.day);
+      onFavoritesChanged(); // re-fetch so usage-based ordering stays current
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not log favorite.");
     } finally {
@@ -117,56 +148,78 @@ function FavoriteChips({
 
   return (
     <div className="mb-4">
-      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Favorites — tap to log
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Favorites — tap to log
+        </span>
+        {collapsible && (
+          <span className="text-xs text-slate-400 dark:text-slate-500">
+            most used first
+          </span>
+        )}
       </div>
-      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-        {tab === "food"
-          ? foodFavorites.map((f) => (
-              <span key={f.id} className="chip shrink-0 border border-white/50 bg-white/50 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
-                <button
-                  type="button"
-                  onClick={() => logFavorite(f.id)}
-                  disabled={busyId === f.id}
-                  className="disabled:opacity-50"
-                  title={`Log ${f.name}${f.amountG != null ? ` (${Math.round(f.amountG)} g)` : ""}`}
-                >
-                  ⭐ {f.name} · {Math.round(f.kcal)} kcal
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeFavorite(f.id)}
-                  disabled={busyId === f.id}
-                  aria-label={`Remove favorite ${f.name}`}
-                  className="ml-1.5 text-slate-400 hover:text-rose-500 disabled:opacity-50"
-                >
-                  ×
-                </button>
-              </span>
-            ))
-          : exerciseFavorites.map((f) => (
-              <span key={f.id} className="chip shrink-0 border border-white/50 bg-white/50 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
-                <button
-                  type="button"
-                  onClick={() => logFavorite(f.id)}
-                  disabled={busyId === f.id}
-                  className="capitalize disabled:opacity-50"
-                  title={`Log ${f.type}`}
-                >
-                  ⭐ {f.type} · {Math.round(f.caloriesBurned)} kcal
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeFavorite(f.id)}
-                  disabled={busyId === f.id}
-                  aria-label={`Remove favorite ${f.type}`}
-                  className="ml-1.5 text-slate-400 hover:text-rose-500 disabled:opacity-50"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
+
+      {collapsible && (
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder={`Filter ${all.length} favorites…`}
+          className="glass-input mb-2 w-full px-3 py-1.5 text-sm"
+        />
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {visible.map((f) => (
+          <span
+            key={f.id}
+            className="chip border border-white/50 bg-white/50 px-3 py-1.5 text-sm text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200"
+          >
+            <button
+              type="button"
+              onClick={() => logFavorite(f.id)}
+              disabled={busyId === f.id}
+              className={cn("disabled:opacity-50", f.capitalize && "capitalize")}
+              title={f.title}
+            >
+              ⭐ {f.label} · {Math.round(f.kcal)} kcal
+            </button>
+            <button
+              type="button"
+              onClick={() => removeFavorite(f.id)}
+              disabled={busyId === f.id}
+              aria-label={`Remove favorite ${f.label}`}
+              className="ml-1.5 text-slate-400 hover:text-rose-500 disabled:opacity-50"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="chip border border-dashed border-slate-400/50 px-3 py-1.5 text-sm text-slate-500 hover:bg-white/40 dark:text-slate-400 dark:hover:bg-white/10"
+          >
+            +{hiddenCount} more
+          </button>
+        )}
+        {collapsible && expanded && !q && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="chip border border-dashed border-slate-400/50 px-3 py-1.5 text-sm text-slate-500 hover:bg-white/40 dark:text-slate-400 dark:hover:bg-white/10"
+          >
+            Show less
+          </button>
+        )}
+        {q && matches.length === 0 && (
+          <span className="py-1 text-sm text-slate-400 dark:text-slate-500">
+            No favorites match “{filter.trim()}”.
+          </span>
+        )}
       </div>
+
       {error && (
         <div className="mt-2">
           <Banner kind="error">{error}</Banner>

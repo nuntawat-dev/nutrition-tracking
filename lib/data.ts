@@ -358,6 +358,8 @@ function mapFoodFavorite(r: Record<string, unknown>): FoodFavorite {
     carbG: n0(r.carb_g),
     fatG: n0(r.fat_g),
     createdAt: str(r.created_at) ?? "",
+    useCount: n0(r.use_count),
+    lastUsedAt: str(r.last_used_at),
   };
 }
 
@@ -392,8 +394,10 @@ export async function addFoodFavorite(input: {
 
 export async function getFoodFavorites(): Promise<FoodFavorite[]> {
   await ensureSchema();
+  // Staples first: most-used, then most-recently-used, then newest.
   const rs = await db().execute(
-    `SELECT * FROM food_favorites ORDER BY id DESC`,
+    `SELECT * FROM food_favorites
+     ORDER BY use_count DESC, last_used_at DESC, id DESC`,
   );
   return (rs.rows as unknown as Record<string, unknown>[]).map(mapFoodFavorite);
 }
@@ -448,6 +452,12 @@ export async function logFoodFavorite(
     note: null,
     items: [item],
   });
+  await db().execute({
+    sql: `UPDATE food_favorites
+          SET use_count = use_count + 1, last_used_at = ?
+          WHERE id = ?`,
+    args: [new Date().toISOString(), id],
+  });
   return true;
 }
 
@@ -457,6 +467,8 @@ function mapExerciseFavorite(r: Record<string, unknown>): ExerciseFavorite {
     type: str(r.type) ?? "",
     caloriesBurned: n0(r.calories_burned),
     createdAt: str(r.created_at) ?? "",
+    useCount: n0(r.use_count),
+    lastUsedAt: str(r.last_used_at),
   };
 }
 
@@ -480,7 +492,8 @@ export async function addExerciseFavorite(input: {
 export async function getExerciseFavorites(): Promise<ExerciseFavorite[]> {
   await ensureSchema();
   const rs = await db().execute(
-    `SELECT * FROM exercise_favorites ORDER BY id DESC`,
+    `SELECT * FROM exercise_favorites
+     ORDER BY use_count DESC, last_used_at DESC, id DESC`,
   );
   return (rs.rows as unknown as Record<string, unknown>[]).map(
     mapExerciseFavorite,
@@ -513,6 +526,12 @@ export async function logExerciseFavorite(
     whenText: null,
     caloriesBurned: fav.caloriesBurned,
     note: null,
+  });
+  await db().execute({
+    sql: `UPDATE exercise_favorites
+          SET use_count = use_count + 1, last_used_at = ?
+          WHERE id = ?`,
+    args: [new Date().toISOString(), id],
   });
   return true;
 }

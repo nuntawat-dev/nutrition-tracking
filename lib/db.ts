@@ -71,18 +71,32 @@ const STATEMENTS: string[] = [
     protein_g REAL NOT NULL,
     carb_g REAL NOT NULL,
     fat_g REAL NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS exercise_favorites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT NOT NULL,
     calories_burned REAL NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_food_entries_date ON food_entries(date)`,
   `CREATE INDEX IF NOT EXISTS idx_food_items_entry ON food_items(entry_id)`,
   `CREATE INDEX IF NOT EXISTS idx_exercise_date ON exercise_entries(date)`,
   `INSERT OR IGNORE INTO profile (id) VALUES (1)`,
+];
+
+// Additive migrations for tables that may pre-date these columns.
+// SQLite raises "duplicate column name" when the column already exists —
+// that error is expected and swallowed; anything else still throws.
+const MIGRATIONS: string[] = [
+  `ALTER TABLE food_favorites ADD COLUMN use_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE food_favorites ADD COLUMN last_used_at TEXT`,
+  `ALTER TABLE exercise_favorites ADD COLUMN use_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE exercise_favorites ADD COLUMN last_used_at TEXT`,
 ];
 
 /** Create tables (idempotent) and seed the single profile row. */
@@ -92,6 +106,14 @@ export async function ensureSchema(): Promise<void> {
       const c = db();
       for (const sql of STATEMENTS) {
         await c.execute(sql);
+      }
+      for (const sql of MIGRATIONS) {
+        try {
+          await c.execute(sql);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!/duplicate column/i.test(msg)) throw err;
+        }
       }
     })().catch((err) => {
       _schema = null; // allow a retry on next request
